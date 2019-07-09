@@ -3,9 +3,25 @@
 # Source config
 . ../config.txt
 
+echo -n "Checking for network interface $WLAN... "
+if [ -e /sys/class/net/$WLAN ]; then
+	echo "Found."
+else
+	echo "Not found!"
+	echo -n "Please edit WLAN in config.txt to one of: "
+	ls -m /sys/class/net
+	exit 1
+fi
+
+wpa_supplicant_pid=$(pidof wpa_supplicant)
+if [ -n "$wpa_supplicant_pid" ]; then
+	echo "Attempting to stop wpa_supplicant"
+	sudo kill $wpa_supplicant_pid
+fi
+
 if test -d /etc/NetworkManager; then
 	echo "Backing up NetworkManager.cfg..."
-	sudo cp /etc/NetworkManager/NetworkManager.conf /etc/NetworkManager/NetworkManager.conf.backup
+	sudo cp -n /etc/NetworkManager/NetworkManager.conf /etc/NetworkManager/NetworkManager.conf.backup
 
 	cat <<- EOF > /etc/NetworkManager/NetworkManager.conf
 		[main]
@@ -21,7 +37,7 @@ fi
 sudo ifconfig $WLAN up
 
 echo "Backing up /etc/dnsmasq.conf..."
-sudo cp /etc/dnsmasq.conf /etc/dnsmasq.conf.backup
+sudo cp -n /etc/dnsmasq.conf /etc/dnsmasq.conf.backup
 
 
 echo "Writing dnsmasq config file..."
@@ -31,6 +47,8 @@ cat <<- EOF >/etc/dnsmasq.conf
 	no-resolv
 	# Interface to bind to
 	interface=$WLAN
+	bind-interfaces
+	listen-address=10.42.42.1
 	#Specify starting_range,end_range,lease_time
 	dhcp-range=10.42.42.10,10.42.42.40,12h
 	# dns addresses to send to the clients
@@ -41,6 +59,9 @@ cat <<- EOF >/etc/dnsmasq.conf
 	address=/tuyaus.com/10.42.42.1
 	address=/tuyacn.com/10.42.42.1
 EOF
+
+echo "Backing up /etc/hostapd/hostapd.conf..."
+sudo cp -n /etc/hostapd/hostapd.conf /etc/hostapd/hostapd.conf.backup
 
 echo "Writing hostapd config file..."
 cat <<- EOF >/etc/hostapd/hostapd.conf
@@ -83,15 +104,14 @@ echo "Starting AP on $WLAN in screen terminal..."
 sudo hostapd /etc/hostapd/hostapd.conf
 
 if test -d /etc/NetworkManager; then
-	sudo rm /etc/NetworkManager/NetworkManager.conf > /dev/null 2>&1
 	sudo mv /etc/NetworkManager/NetworkManager.conf.backup /etc/NetworkManager/NetworkManager.conf
 	sudo service network-manager restart
 fi
 sudo /etc/init.d/dnsmasq stop > /dev/null 2>&1
 sudo pkill dnsmasq
-sudo rm /etc/dnsmasq.conf > /dev/null 2>&1
 sudo mv /etc/dnsmasq.conf.backup /etc/dnsmasq.conf > /dev/null 2>&1
 sudo rm /etc/dnsmasq.hosts > /dev/null 2>&1
+sudo mv /etc/hostapd/hostapd.conf.backup /etc/hostapd/hostapd.conf > /dev/null 2>&1
 sudo iptables --flush
 sudo iptables --flush -t nat
 sudo iptables --delete-chain
